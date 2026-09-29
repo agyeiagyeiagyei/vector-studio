@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vector Studio</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; background: #e8e8ec; }
+  #toolbar {
+    display: flex; gap: 4px; align-items: center;
+    padding: 6px 10px; background: #1d1d1f; color: #fff;
+  }
+  #toolbar button {
+    background: #333338; color: #ddd; border: none; border-radius: 6px;
+    padding: 6px 10px; font-size: 14px; cursor: pointer;
+  }
+  #toolbar button:hover { background: #44444c; }
+  #toolbar button.active { background: #2f6bff; color: #fff; }
+  #toolbar .spacer { flex: 1; }
+  #main { display: flex; flex: 1; min-height: 0; }
+  #canvas-container { flex: 1; position: relative; min-width: 0; }
+  #canvas { position: absolute; inset: 0; touch-action: none; }
+  #sidebar {
+    width: 220px; background: #f4f4f6; border-left: 1px solid #d8d8de;
+    display: flex; flex-direction: column; padding: 10px; gap: 12px;
+    overflow-y: auto;
+  }
+  #sidebar h2 { font-size: 12px; text-transform: uppercase; color: #888; margin-bottom: 6px; }
+  #layers-list { display: flex; flex-direction: column; gap: 2px; }
+  .layer-item {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .layer-item:hover { background: #e4e4ea; }
+  .layer-item.selected { background: #d3e0ff; }
+  .layer-swatch {
+    width: 14px; height: 14px; border-radius: 3px; border: 1px solid #999;
+    flex: none;
+  }
+  #style-panel { font-size: 13px; display: none; }
+  #style-panel label { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  #style-panel input[type="color"] { width: 40px; height: 24px; border: none; padding: 0; }
+  #style-panel input[type="number"] { width: 56px; }
+  #style-panel select { flex: 1; font-size: 12px; }
+  #style-panel input[type="range"] { flex: 1; min-width: 0; }
+  #gradient-editor { margin-bottom: 6px; }
+  #gradient-bar {
+    position: relative; height: 18px; border-radius: 4px; border: 1px solid #999;
+    margin: 22px 0 8px; cursor: copy;
+  }
+  .gradient-stop {
+    position: absolute; top: -3px; width: 11px; height: 24px;
+    transform: translateX(-50%); border: 2px solid #fff; border-radius: 3px;
+    box-shadow: 0 1px 3px #0006; cursor: ew-resize;
+  }
+  .gradient-stop.selected { border-color: #2f6bff; }
+  #gradient-stop-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  #gradient-stop-row button {
+    background: #e4e4ea; border: none; border-radius: 4px; padding: 2px 7px; cursor: pointer;
+  }
+  #gradient-stop-row button:disabled { opacity: 0.4; cursor: default; }
+  .hint { font-size: 11px; color: #999; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <button data-tool="pointer-tool" class="active" title="Select (V)">⬚ Select</button>
+    <button data-tool="pen-tool-cubic" title="Pen (P)">✒ Pen</button>
+    <button data-tool="shape-tool-rectangle" title="Rectangle (R)">▭ Rect</button>
+    <button data-tool="shape-tool-ellipse" title="Ellipse (O)">◯ Ellipse</button>
+    <button data-tool="knife-tool" title="Knife (K)">✂ Knife</button>
+    <button data-tool="hand-tool" title="Hand (H, or hold Space)">✋ Hand</button>
+    <span class="spacer"></span>
+    <button id="undo-button" title="Undo (Cmd/Ctrl+Z)">↩ Undo</button>
+    <button id="redo-button" title="Redo (Cmd/Ctrl+Shift+Z)">↪ Redo</button>
+    <button id="zoom-fit" title="Zoom to fit">⤢ Fit</button>
+    <button id="import-svg">Import SVG</button>
+    <button id="export-svg">Export SVG</button>
+    <input type="file" id="import-file" accept=".svg,image/svg+xml" style="display:none">
+  </div>
+  <div id="main">
+    <div id="canvas-container"><canvas id="canvas"></canvas></div>
+    <div id="sidebar">
+      <div>
+        <h2>Layers</h2>
+        <div id="layers-list"></div>
+      </div>
+      <div id="style-panel">
+        <h2>Style</h2>
+        <label>Fill
+          <select id="fill-type">
+            <option value="none">None</option>
+            <option value="solid">Solid</option>
+            <option value="linear">Linear gradient</option>
+            <option value="radial">Radial gradient</option>
+          </select>
+        </label>
+        <label id="fill-solid-row">Color <input type="color" id="fill-color"></label>
+        <div id="gradient-editor" style="display:none">
+          <div id="gradient-bar"></div>
+          <div id="gradient-stop-row">
+            <input type="color" id="stop-color">
+            <input type="number" id="stop-offset" min="0" max="100" step="1" title="Stop position (%)">
+            <button id="stop-delete" title="Delete stop">✕</button>
+          </div>
+          <label id="gradient-angle-row">Angle
+            <input type="range" id="gradient-angle" min="0" max="360" step="1">
+            <span id="gradient-angle-value"></span>
+          </label>
+          <label id="gradient-radius-row">Radius
+            <input type="range" id="gradient-radius" min="2" max="150" step="1">
+            <span id="gradient-radius-value"></span>
+          </label>
+        </div>
+        <label>Stroke <input type="color" id="stroke-color"></label>
+        <label>Width <input type="number" id="stroke-width" min="0" step="0.5"></label>
+      </div>
+      <div class="hint">
+        V select · P pen · R rect · O ellipse · K knife · H hand<br>
+        Double-click a shape to edit its nodes. Esc exits node editing.<br>
+        Delete removes selected points or shape. Space+drag pans.
+      </div>
+    </div>
+  </div>
+  <script src="./bundle.js"></script>
+</body>
+</html>

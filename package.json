@@ -1,0 +1,19 @@
+{
+  "name": "vector-studio",
+  "version": "1.0.0",
+  "description": "Browser-based vector editor built on a vendored Fontra core",
+  "main": "index.js",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "keywords": [],
+  "author": "Agyei Archer",
+  "license": "GPL-3.0-only",
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "bezier-js": "^6.1.4",
+    "fflate": "^0.8.3"
+  }
+}
