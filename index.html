@@ -79,6 +79,23 @@
   .axis-row input[type="range"] { flex: 1; min-width: 0; }
   .axis-row .axis-value { width: 34px; font-size: 11px; text-align: right; color: #666; flex: none; }
   .hint { font-size: 11px; color: #999; line-height: 1.5; }
+  #threed-overlay {
+    position: fixed; inset: 0; z-index: 1000; display: flex;
+    background: #f4f4f6;
+  }
+  #threed-canvas-wrap { flex: 1; position: relative; min-width: 0; }
+  #threed-canvas-wrap canvas { position: absolute; inset: 0; }
+  #threed-panel {
+    width: 220px; border-left: 1px solid #d8d8de; padding: 12px;
+    display: flex; flex-direction: column; gap: 10px; font-size: 13px;
+  }
+  #threed-panel h2 { font-size: 12px; text-transform: uppercase; color: #888; }
+  #threed-panel label { display: flex; flex-direction: column; gap: 4px; }
+  #threed-panel button {
+    background: #e4e4ea; border: none; border-radius: 6px; padding: 7px 10px;
+    cursor: pointer; font-size: 13px;
+  }
+  #threed-panel button:hover { background: #d8d8e2; }
 </style>
 </head>
 <body>
@@ -94,14 +111,14 @@
     <button id="undo-button" title="Undo (Cmd/Ctrl+Z)">↩ Undo</button>
     <button id="redo-button" title="Redo (Cmd/Ctrl+Shift+Z)">↪ Redo</button>
     <button id="zoom-fit" title="Zoom to fit">⤢ Fit</button>
+    <button id="threed-open" title="Extrude selection to 3D">🧊 3D</button>
     <button id="import-svg">Import SVG</button>
     <button id="export-svg">Export SVG</button>
     <input type="file" id="import-file" accept=".svg,image/svg+xml" style="display:none">
   </div>
   <div id="main">
     <div id="canvas-container"><canvas id="canvas"></canvas></div>
-    <div id="sidebar">
-      <div>
+    <div id="sidebar">      <div>
         <h2>Layers</h2>
         <div id="layers-list"></div>
       </div>
@@ -153,6 +170,26 @@
         Delete removes selected points or shape. Space+drag pans.<br>
         Outlined letters: double-click, Cmd/Ctrl+A, drag the transform handles.
       </div>
+    </div>
+  </div>
+  <div id="threed-overlay" style="display:none">
+    <div id="threed-canvas-wrap"></div>
+    <div id="threed-panel">
+      <h2>3D</h2>
+      <label>Depth <input type="range" id="threed-depth" min="1" max="400" step="1" value="40"></label>
+      <label>Material
+        <select id="threed-material">
+          <option value="matte">Matte</option>
+          <option value="glossy">Glossy</option>
+          <option value="metal">Metal</option>
+        </select>
+      </label>
+      <label>Light azimuth <input type="range" id="threed-azimuth" min="0" max="360" step="1" value="45"></label>
+      <label>Light elevation <input type="range" id="threed-elevation" min="5" max="85" step="1" value="45"></label>
+      <button id="threed-export-png" type="button">Export PNG</button>
+      <button id="threed-flatten" type="button">Flatten to shapes</button>
+      <button id="threed-close" type="button">Close (Esc)</button>
+      <div class="hint">Drag to orbit · scroll to zoom</div>
     </div>
   </div>
   <script src="./bundle.js"></script>

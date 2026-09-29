@@ -293,24 +293,45 @@ export function importSVG(doc, svgText, ShapeClass) {
     if (!contours.length) {
       continue;
     }
+    const style = parseStyleAttr(pathEl.getAttribute("style"));
     const shape = new ShapeClass(pathEl.getAttribute("id") || undefined);
     shape.layerGlyph.path = VarPackedPath.fromUnpackedContours(contours);
-    const fill = pathEl.getAttribute("fill");
+    const fill = pathEl.getAttribute("fill") ?? style.fill;
     if (fill && fill.startsWith("url(")) {
       const gradient = resolveGradientRef(svgDoc, fill, shape.path.getControlBounds());
       shape.fill = gradient || null;
     } else if (fill && fill !== "none") {
-      shape.fill = fill;
+      shape.fill = cssColorToHex(fill) || fill;
     } else if (fill === "none") {
       shape.fill = null;
     }
-    const stroke = pathEl.getAttribute("stroke");
+    const stroke = pathEl.getAttribute("stroke") ?? style.stroke;
     if (stroke && stroke !== "none") {
-      shape.stroke = stroke;
-      shape.strokeWidth = parseFloat(pathEl.getAttribute("stroke-width") || "1") || 1;
+      shape.stroke = cssColorToHex(stroke) || stroke;
+      shape.strokeWidth =
+        parseFloat(pathEl.getAttribute("stroke-width") ?? style["stroke-width"] ?? "1") || 1;
     }
     doc.addShape(shape);
     imported.push(shape);
   }
   return imported;
+}
+
+function parseStyleAttr(styleAttr) {
+  const style = {};
+  for (const decl of (styleAttr || "").split(";")) {
+    const idx = decl.indexOf(":");
+    if (idx > 0) {
+      style[decl.slice(0, idx).trim()] = decl.slice(idx + 1).trim();
+    }
+  }
+  return style;
+}
+
+function cssColorToHex(color) {
+  const m = color.match(/^rgb\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)\s*\)$/);
+  if (!m) {
+    return null;
+  }
+  return "#" + [m[1], m[2], m[3]].map((v) => (+v).toString(16).padStart(2, "0")).join("");
 }

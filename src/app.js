@@ -54,6 +54,7 @@ class TextTool extends BaseTool {
 }
 import { VisualizationLayers, makeVisContext } from "./visualization.js";
 import { exportSVG, importSVG } from "./svg.js";
+import { ThreeDView } from "./threed.js";
 
 class EditorShell {
   constructor(canvas) {
@@ -364,6 +365,74 @@ class EditorShell {
     this.sceneController._shapeChanged(shape);
   }
 
+  openThreeD() {
+    if (this._threed) {
+      return;
+    }
+    const sel = this.sceneSettings.selectedGlyph;
+    let shapes = [];
+    if (sel) {
+      const s = this.document.shapeAt(sel.glyphIndex);
+      if (s) {
+        shapes = [s];
+      }
+    } else {
+      shapes = this.document.shapes.filter((s) => s.visible && s.path.numPoints > 0);
+    }
+    if (!shapes.length) {
+      return;
+    }
+    document.getElementById("threed-overlay").style.display = "flex";
+    this._threed = new ThreeDView(document.getElementById("threed-canvas-wrap"), shapes);
+  }
+
+  closeThreeD() {
+    if (!this._threed) {
+      return;
+    }
+    this._threed.dispose();
+    this._threed = undefined;
+    document.getElementById("threed-overlay").style.display = "none";
+    this.canvasController.requestUpdate();
+  }
+
+  exportThreeDPNG() {
+    if (!this._threed) {
+      return;
+    }
+    const dataUrl = this._threed.renderPNG();
+    window._lastPng = dataUrl; // for tests
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = "vector-studio-3d.png";
+    a.click();
+  }
+
+  flattenThreeD() {
+    if (!this._threed) {
+      return;
+    }
+    const svg = this._threed.renderSVG();
+    const imported = importSVG(this.document, svg, Shape);
+    for (const shape of imported) {
+      this.document.pushUndo({
+        label: "flatten 3d",
+        undo: () => {
+          this.sceneSettings.selectedGlyph = undefined;
+          this.document.removeShapeAt(this.document.indexOfShape(shape));
+          this.canvasController.requestUpdate();
+        },
+        redo: () => {
+          this.document.addShape(shape);
+          this.canvasController.requestUpdate();
+        },
+      });
+    }
+    this.canvasController.requestUpdate();
+    this.updateLayersPanel();
+    return imported.length;
+  }
+
   createShapeAndEnterEditing() {
     const shape = new Shape();
     const index = this.document.addShape(shape);
@@ -520,6 +589,10 @@ class EditorShell {
       return;
     }
     if (event.key === "Escape") {
+      if (this._threed) {
+        this.closeThreeD();
+        return;
+      }
       if (this.sceneSettings.selectedGlyph?.isEditing) {
         this.sceneSettings.selectedGlyph = {
           ...this.sceneSettings.selectedGlyph,
@@ -984,6 +1057,32 @@ document.getElementById("font-upload").addEventListener("change", async (event) 
 document.getElementById("convert-outlines").addEventListener("click", () => {
   editor.convertTextToOutlines();
 });
+document.getElementById("threed-open").addEventListener("click", () => editor.openThreeD());
+document.getElementById("threed-close").addEventListener("click", () => editor.closeThreeD());
+document.getElementById("threed-export-png").addEventListener("click", () => editor.exportThreeDPNG());
+document.getElementById("threed-flatten").addEventListener("click", () => editor.flattenThreeD());
+document.getElementById("threed-depth").addEventListener("input", (e) => {
+  if (editor._threed) {
+    editor._threed.depth = parseFloat(e.target.value);
+    editor._threed.rebuild();
+  }
+});
+document.getElementById("threed-material").addEventListener("change", (e) => {
+  if (editor._threed) {
+    editor._threed.materialType = e.target.value;
+    editor._threed.rebuild();
+  }
+});
+for (const id of ["threed-azimuth", "threed-elevation"]) {
+  document.getElementById(id).addEventListener("input", () => {
+    if (editor._threed) {
+      editor._threed.setLight(
+        parseFloat(document.getElementById("threed-azimuth").value),
+        parseFloat(document.getElementById("threed-elevation").value)
+      );
+    }
+  });
+}
 
 // Watch selection changes to update panels: poll cheaply on mouseup/keyup
 canvas.addEventListener("mouseup", () => {
