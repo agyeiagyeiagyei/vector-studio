@@ -16,8 +16,17 @@ export function isPointInPath(path2d, x, y) {
 
 export class SceneSettings {
   constructor() {
-    this.selectedGlyph = undefined; // {lineIndex: 0, glyphIndex, isEditing}
+    this._selectedGlyph = undefined; // {lineIndex: 0, glyphIndex, isEditing}
     this.selection = new Set();
+    this.guardSelectedGlyph = undefined; // optional (value) => value, e.g. text shapes never edit nodes
+  }
+
+  get selectedGlyph() {
+    return this._selectedGlyph;
+  }
+
+  set selectedGlyph(value) {
+    this._selectedGlyph = this.guardSelectedGlyph ? this.guardSelectedGlyph(value) : value;
   }
 }
 
@@ -187,6 +196,14 @@ export class SceneModel {
   get canEdit() {
     const shape = this._selectedShape();
     return !!this.selectedGlyph?.isEditing && !!shape && !shape.locked;
+  }
+
+  get showTransformSelection() {
+    return this._showTransformSelection !== false;
+  }
+
+  set showTransformSelection(value) {
+    this._showTransformSelection = value;
   }
 
   _selectedShape() {

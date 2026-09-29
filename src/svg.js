@@ -7,9 +7,26 @@ import { allocGradientId, gradientToSVGDef, isGradient, resolveGradientRef } fro
 export function pathToSVGPathData(path) {
   const parts = [];
   for (const contour of path.unpackedContours()) {
-    const points = contour.points;
+    const points = [...contour.points];
     if (!points.length) {
       continue;
+    }
+    // TrueType outlines may end a closed contour with off-curve points whose
+    // segment wraps to the first point; serialize that segment explicitly.
+    let closingSegment = null;
+    if (contour.isClosed && points.length > 1) {
+      const last = points[points.length - 1];
+      const beforeLast = points[points.length - 2];
+      if (last.type === "cubic" && beforeLast.type === "cubic") {
+        points.pop();
+        points.pop();
+        closingSegment =
+          `C${fmt(beforeLast.x)} ${fmt(beforeLast.y)} ${fmt(last.x)} ${fmt(last.y)} ` +
+          `${fmt(points[0].x)} ${fmt(points[0].y)}`;
+      } else if (last.type === "quad") {
+        points.pop();
+        closingSegment = `Q${fmt(last.x)} ${fmt(last.y)} ${fmt(points[0].x)} ${fmt(points[0].y)}`;
+      }
     }
     parts.push(`M${fmt(points[0].x)} ${fmt(points[0].y)}`);
     let i = 1;
@@ -32,6 +49,9 @@ export function pathToSVGPathData(path) {
         parts.push(`L${fmt(p.x)} ${fmt(p.y)}`);
         i += 1;
       }
+    }
+    if (closingSegment) {
+      parts.push(closingSegment);
     }
     if (contour.isClosed) {
       parts.push("Z");

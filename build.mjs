@@ -25,3 +25,4 @@ await esbuild.build({
 });
 
 fs.copyFileSync(path.join(root, "index.html"), path.join(root, "dist/index.html"));
+fs.cpSync(path.join(root, "assets"), path.join(root, "dist/assets"), { recursive: true });

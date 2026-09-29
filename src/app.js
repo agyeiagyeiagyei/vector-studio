@@ -12,6 +12,7 @@ import {
   ShapeToolRect,
 } from "../vendor/fontra/tools/edit-tools-shape.js";
 import { HandTool } from "../vendor/fontra/tools/edit-tools-hand.js";
+import { BaseTool } from "../vendor/fontra/tools/edit-tools-base.js";
 
 import { DocumentModel, Shape } from "./document.js";
 import {
@@ -21,6 +22,36 @@ import {
   sortedStops,
 } from "./gradients.js";
 import { SceneController } from "./scene.js";
+import {
+  DEFAULT_FONT_ID,
+  FontManager,
+  relayoutTextShape,
+  textShapeToOutlines,
+} from "./text.js";
+
+class TextTool extends BaseTool {
+  identifier = "text-tool";
+
+  handleHover(event) {
+    this.setCursor();
+  }
+
+  setCursor() {
+    this.canvasController.canvas.style.cursor = "text";
+  }
+
+  async handleDrag(eventStream, initialEvent) {
+    const point = this.sceneController.localPoint(initialEvent);
+    const hit = this.sceneModel.glyphAtPoint(point);
+    if (hit) {
+      this.sceneSettings.selectedGlyph = hit;
+      this.editor.canvasController.requestUpdate();
+    } else {
+      await this.editor.createTextShapeAt(point);
+    }
+    eventStream.done();
+  }
+}
 import { VisualizationLayers, makeVisContext } from "./visualization.js";
 import { exportSVG, importSVG } from "./svg.js";
 
@@ -50,10 +81,31 @@ class EditorShell {
       ShapeToolRect,
       ShapeToolEllipse,
       HandTool,
+      TextTool,
     ]) {
       const tool = new ToolClass(this);
       this.tools[tool.identifier] = tool;
     }
+
+    this.fonts = new FontManager();
+    this.fonts.ensureDefaultFont().catch((error) => {
+      console.error("default font failed to load", error);
+    });
+
+    // Text shapes edit via the text panel, never node editing: clamp isEditing
+    this.sceneSettings.guardSelectedGlyph = (sel) => {
+      const shape = sel ? this.document.shapeAt(sel.glyphIndex) : undefined;
+      if (sel?.isEditing && shape?.text) {
+        queueMicrotask(() => {
+          this.updateTextPanel();
+          const textarea = document.getElementById("text-content");
+          textarea.focus();
+          textarea.select();
+        });
+        return { ...sel, isEditing: false };
+      }
+      return sel;
+    };
 
     // Pen and shape tools auto-create a shape when none is being edited
     for (const id of ["pen-tool-cubic", "shape-tool-rectangle", "shape-tool-ellipse"]) {
@@ -141,6 +193,175 @@ class EditorShell {
     document.querySelectorAll("#toolbar button[data-tool]").forEach((button) => {
       button.classList.toggle("active", button.dataset.tool === identifier);
     });
+  }
+
+  async createTextShapeAt(point) {
+    try {
+      await this.fonts.ensureDefaultFont();
+    } catch (error) {
+      return;
+    }
+    const shape = new Shape("Text");
+    shape.text = {
+      string: "Text",
+      font: DEFAULT_FONT_ID,
+      size: 96,
+      variations: {},
+    };
+    relayoutTextShape(this.fonts, shape);
+    shape.x = Math.round(point.x);
+    shape.y = Math.round(point.y);
+    const index = this.document.addShape(shape);
+    this.sceneSettings.selectedGlyph = { lineIndex: 0, glyphIndex: index, isEditing: false };
+    this.sceneSettings.selection = new Set();
+    this.document.pushUndo({
+      label: "new text",
+      undo: () => {
+        this.sceneSettings.selectedGlyph = undefined;
+        this.document.removeShapeAt(this.document.indexOfShape(shape));
+        this.canvasController.requestUpdate();
+      },
+      redo: () => {
+        const newIndex = this.document.addShape(shape);
+        this.sceneSettings.selectedGlyph = {
+          lineIndex: 0,
+          glyphIndex: newIndex,
+          isEditing: false,
+        };
+        this.canvasController.requestUpdate();
+      },
+    });
+    this.setSelectedTool("pointer-tool");
+    this.canvasController.requestUpdate();
+    this.updateStylePanel();
+    this.updateTextPanel();
+    document.getElementById("text-content").focus();
+    document.getElementById("text-content").select();
+    return shape;
+  }
+
+  convertTextToOutlines() {
+    const sel = this.sceneSettings.selectedGlyph;
+    const shape = sel ? this.document.shapeAt(sel.glyphIndex) : undefined;
+    if (!shape?.text) {
+      return;
+    }
+    const letters = textShapeToOutlines(this.fonts, shape, Shape);
+    if (!letters.length) {
+      return;
+    }
+    const index = this.document.indexOfShape(shape);
+    this.sceneSettings.selectedGlyph = undefined;
+    this.document.removeShapeAt(index);
+    for (const letter of letters) {
+      this.document.addShape(letter);
+    }
+    this.document.pushUndo({
+      label: "convert to outlines",
+      undo: () => {
+        for (const letter of letters) {
+          this.document.removeShapeAt(this.document.indexOfShape(letter));
+        }
+        const newIndex = this.document.addShape(shape, Math.min(index, this.document.shapes.length));
+        this.sceneSettings.selectedGlyph = {
+          lineIndex: 0,
+          glyphIndex: newIndex,
+          isEditing: false,
+        };
+        this.canvasController.requestUpdate();
+      },
+      redo: () => {
+        this.sceneSettings.selectedGlyph = undefined;
+        this.document.removeShapeAt(this.document.indexOfShape(shape));
+        for (const letter of letters) {
+          this.document.addShape(letter);
+        }
+        this.canvasController.requestUpdate();
+      },
+    });
+    this.sceneSettings.selectedGlyph = {
+      lineIndex: 0,
+      glyphIndex: this.document.indexOfShape(letters[0]),
+      isEditing: false,
+    };
+    this.sceneSettings.selection = new Set();
+    this.canvasController.requestUpdate();
+    this.updateLayersPanel();
+    this.updateStylePanel();
+    this.updateTextPanel();
+  }
+
+  updateTextPanel() {
+    const shape = this.styleShape;
+    const panel = document.getElementById("text-panel");
+    const isText = !!shape?.text;
+    panel.style.display = isText ? "block" : "none";
+    if (!isText) {
+      this._textShape = undefined;
+      return;
+    }
+    const rebuilt = this._textShape !== shape || this._textFont !== shape.text.font;
+    this._textShape = shape;
+    this._textFont = shape.text.font;
+    if (!rebuilt) {
+      return;
+    }
+    document.getElementById("text-content").value = shape.text.string;
+    document.getElementById("text-size").value = shape.text.size;
+
+    const fontSelect = document.getElementById("font-select");
+    fontSelect.innerHTML = "";
+    for (const font of this.fonts.fonts.values()) {
+      const option = document.createElement("option");
+      option.value = font.id;
+      option.textContent = font.name;
+      fontSelect.appendChild(option);
+    }
+    fontSelect.value = shape.text.font;
+
+    const axesContainer = document.getElementById("axes-container");
+    axesContainer.innerHTML = "";
+    const entry = this.fonts.get(shape.text.font);
+    for (const axis of entry?.axes || []) {
+      const value = shape.text.variations[axis.tag] ?? axis.default;
+      const label = document.createElement("label");
+      label.className = "axis-row";
+      const name = document.createElement("span");
+      name.className = "axis-tag";
+      name.textContent = axis.tag;
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = axis.min;
+      slider.max = axis.max;
+      slider.step = Math.max(1, (axis.max - axis.min) / 200);
+      slider.value = value;
+      const readout = document.createElement("span");
+      readout.className = "axis-value";
+      readout.textContent = value;
+      slider.addEventListener("input", () => {
+        shape.text.variations[axis.tag] = parseFloat(slider.value);
+        readout.textContent = slider.value;
+        relayoutTextShape(this.fonts, shape);
+        this.sceneController._shapeChanged(shape);
+      });
+      label.appendChild(name);
+      label.appendChild(slider);
+      label.appendChild(readout);
+      axesContainer.appendChild(label);
+    }
+  }
+
+  applyTextFromPanel() {
+    const shape = this.styleShape;
+    if (!shape?.text) {
+      return;
+    }
+    shape.text.string = document.getElementById("text-content").value;
+    shape.text.size =
+      Math.max(4, parseFloat(document.getElementById("text-size").value)) || 96;
+    shape.text.font = document.getElementById("font-select").value;
+    relayoutTextShape(this.fonts, shape);
+    this.sceneController._shapeChanged(shape);
   }
 
   createShapeAndEnterEditing() {
@@ -279,6 +500,20 @@ class EditorShell {
       }
       return;
     }
+    if (event[commandKeyProperty] && event.key.toLowerCase() === "a") {
+      const sel = this.sceneSettings.selectedGlyph;
+      const shape = sel ? this.document.shapeAt(sel.glyphIndex) : undefined;
+      if (sel?.isEditing && shape) {
+        event.preventDefault();
+        const all = new Set();
+        for (let i = 0; i < shape.path.numPoints; i++) {
+          all.add(`point/${i}`);
+        }
+        this.sceneSettings.selection = all;
+        this.canvasController.requestUpdate();
+      }
+      return;
+    }
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
       this.deleteSelection();
@@ -301,6 +536,7 @@ class EditorShell {
       k: "knife-tool",
       r: "shape-tool-rectangle",
       o: "shape-tool-ellipse",
+      t: "text-tool",
       h: "hand-tool",
     };
     if (!event[commandKeyProperty] && !event.altKey && toolKeys[event.key.toLowerCase()]) {
@@ -707,14 +943,58 @@ document.getElementById("gradient-bar").addEventListener("pointerdown", (e) => {
   }
 });
 
+for (const id of ["text-content", "text-size"]) {
+  document.getElementById(id).addEventListener("input", () => editor.applyTextFromPanel());
+}
+document.getElementById("font-select").addEventListener("change", () => {
+  editor.applyTextFromPanel();
+  editor._textFont = undefined; // force axes rebuild for the new font
+  editor.updateTextPanel();
+});
+document.getElementById("font-upload-btn").addEventListener("click", () => {
+  document.getElementById("font-upload").click();
+});
+document.getElementById("font-upload").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) {
+    return;
+  }
+  const id = "user-" + file.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  try {
+    editor.fonts.loadFromBuffer(
+      await file.arrayBuffer(),
+      id,
+      file.name.replace(/\.[^.]+$/, "")
+    );
+  } catch (error) {
+    console.error("font load failed", error);
+    return;
+  }
+  event.target.value = "";
+  const shape = editor.styleShape;
+  if (shape?.text) {
+    shape.text.font = id;
+    shape.text.variations = {};
+    relayoutTextShape(editor.fonts, shape);
+    editor.sceneController._shapeChanged(shape);
+  }
+  editor._textShape = undefined; // force panel rebuild to list the new font
+  editor.updateTextPanel();
+});
+document.getElementById("convert-outlines").addEventListener("click", () => {
+  editor.convertTextToOutlines();
+});
+
 // Watch selection changes to update panels: poll cheaply on mouseup/keyup
 canvas.addEventListener("mouseup", () => {
   editor.updateLayersPanel();
   editor.updateStylePanel();
+  editor.updateTextPanel();
 });
 window.addEventListener("keyup", () => {
   editor.updateLayersPanel();
   editor.updateStylePanel();
+  editor.updateTextPanel();
 });
 
 editor.updateLayersPanel();
