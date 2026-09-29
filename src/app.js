@@ -55,6 +55,7 @@ class TextTool extends BaseTool {
 import { VisualizationLayers, makeVisContext } from "./visualization.js";
 import { exportSVG, importSVG } from "./svg.js";
 import { ThreeDView } from "./threed.js";
+import { CurvaturePenTool } from "./curvature.js";
 
 class EditorShell {
   constructor(canvas) {
@@ -83,6 +84,7 @@ class EditorShell {
       ShapeToolEllipse,
       HandTool,
       TextTool,
+      CurvaturePenTool,
     ]) {
       const tool = new ToolClass(this);
       this.tools[tool.identifier] = tool;
@@ -585,6 +587,9 @@ class EditorShell {
     }
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
+      if (this.selectedTool.handleDelete?.()) {
+        return;
+      }
       this.deleteSelection();
       return;
     }
@@ -606,6 +611,7 @@ class EditorShell {
     const toolKeys = {
       v: "pointer-tool",
       p: "pen-tool-cubic",
+      c: "pen-tool-curvature",
       k: "knife-tool",
       r: "shape-tool-rectangle",
       o: "shape-tool-ellipse",

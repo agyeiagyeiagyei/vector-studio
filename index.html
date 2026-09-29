@@ -102,6 +102,7 @@
   <div id="toolbar">
     <button data-tool="pointer-tool" class="active" title="Select (V)">⬚ Select</button>
     <button data-tool="pen-tool-cubic" title="Pen (P)">✒ Pen</button>
+    <button data-tool="pen-tool-curvature" title="Curvature pen (C) — click points, handles auto-fit">∿ Curv</button>
     <button data-tool="shape-tool-rectangle" title="Rectangle (R)">▭ Rect</button>
     <button data-tool="shape-tool-ellipse" title="Ellipse (O)">◯ Ellipse</button>
     <button data-tool="knife-tool" title="Knife (K)">✂ Knife</button>
@@ -165,7 +166,9 @@
         <button id="convert-outlines" type="button">Convert to outlines</button>
       </div>
       <div class="hint">
-        V select · P pen · R rect · O ellipse · K knife · T text · H hand<br>
+        V select · P pen · C curvature · R rect · O ellipse · K knife · T text · H hand<br>
+        Curvature pen: click to add points, the curve auto-fits. Click the first
+        point to close, double-click a point for a corner, Delete removes the last point.<br>
         Double-click a shape to edit its nodes. Esc exits node editing.<br>
         Delete removes selected points or shape. Space+drag pans.<br>
         Outlined letters: double-click, Cmd/Ctrl+A, drag the transform handles.
