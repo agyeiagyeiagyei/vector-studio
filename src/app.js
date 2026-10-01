@@ -56,6 +56,9 @@ import { VisualizationLayers, makeVisContext } from "./visualization.js";
 import { exportSVG, importSVG } from "./svg.js";
 import { ThreeDView } from "./threed.js";
 import { CurvaturePenTool } from "./curvature.js";
+import { selectedShapes, shapeBounds, applyTransform } from "./transform.js";
+import { applyPathfinder } from "./pathfinder.js";
+import { ArtboardTool, removeArtboard, drawArtboards } from "./artboards.js";
 
 class EditorShell {
   constructor(canvas) {
@@ -65,6 +68,10 @@ class EditorShell {
     this.sceneModel = this.sceneController.sceneModel;
     this.sceneSettingsController = { model: this.sceneController.sceneSettings };
     this.sceneSettings = this.sceneController.sceneSettings;
+    // Shift-click in the layers panel adds shapes here (multi-select).
+    this.extraSelected = new Set();
+    this.artboards = [];
+    this.activeArtboard = undefined;
     this.fontController = {
       getBackgroundImageBoundsFunc: undefined,
       readOnly: false,
@@ -85,6 +92,7 @@ class EditorShell {
       HandTool,
       TextTool,
       CurvaturePenTool,
+      ArtboardTool,
     ]) {
       const tool = new ToolClass(this);
       this.tools[tool.identifier] = tool;
@@ -173,14 +181,25 @@ class EditorShell {
   drawScene(model, controller) {
     const context = controller.context;
     const viewBox = controller.getViewBox();
-    context.fillStyle = "#ffffff";
-    context.fillRect(
-      viewBox.xMin,
-      viewBox.yMin,
-      viewBox.xMax - viewBox.xMin,
-      viewBox.yMax - viewBox.yMin
-    );
+    drawArtboards(this, context, viewBox);
     this.visualizationLayers.drawVisualizationLayers(makeVisContext(model, controller));
+    if (this.extraSelected.size) {
+      const onePx = this.canvasController.onePixelUnit || 1;
+      context.save();
+      context.strokeStyle = "#2f6bff";
+      context.lineWidth = onePx;
+      context.setLineDash([4 * onePx, 3 * onePx]);
+      for (const shape of this.extraSelected) {
+        if (!this.document.shapes.includes(shape)) {
+          continue;
+        }
+        const b = shapeBounds(shape);
+        if (b) {
+          context.strokeRect(b.xMin, b.yMin, b.xMax - b.xMin, b.yMax - b.yMin);
+        }
+      }
+      context.restore();
+    }
   }
 
   getPenTool() {
@@ -515,28 +534,37 @@ class EditorShell {
         this.sceneController.selection = new Set();
         return "delete points";
       });
-    } else if (sel) {
-      const shape = this.document.shapeAt(sel.glyphIndex);
-      if (!shape) {
+    } else if (sel || this.extraSelected.size) {
+      const shapes = selectedShapes(this).filter((s) =>
+        this.document.shapes.includes(s)
+      );
+      if (!shapes.length) {
         return;
       }
-      const index = sel.glyphIndex;
+      const removed = shapes
+        .map((shape) => ({ shape, index: this.document.indexOfShape(shape) }))
+        .sort((a, b) => b.index - a.index);
       this.sceneSettings.selectedGlyph = undefined;
-      this.document.removeShapeAt(index);
+      this.extraSelected.clear();
+      for (const { shape } of removed) {
+        this.document.removeShapeAt(this.document.indexOfShape(shape));
+      }
       this.document.pushUndo({
-        label: "delete shape",
+        label: removed.length > 1 ? "delete shapes" : "delete shape",
         undo: () => {
-          const newIndex = this.document.addShape(shape, Math.min(index, this.document.shapes.length));
-          this.sceneSettings.selectedGlyph = {
-            lineIndex: 0,
-            glyphIndex: newIndex,
-            isEditing: false,
-          };
+          for (const { shape, index } of [...removed].reverse()) {
+            this.document.addShape(shape, Math.min(index, this.document.shapes.length));
+          }
           this.canvasController.requestUpdate();
         },
         redo: () => {
           this.sceneSettings.selectedGlyph = undefined;
-          this.document.removeShapeAt(this.document.indexOfShape(shape));
+          for (const { shape } of removed) {
+            const idx = this.document.indexOfShape(shape);
+            if (idx >= 0) {
+              this.document.removeShapeAt(idx);
+            }
+          }
           this.canvasController.requestUpdate();
         },
       });
@@ -605,6 +633,12 @@ class EditorShell {
         };
         this.sceneSettings.selection = new Set();
         this.canvasController.requestUpdate();
+      } else if (this.extraSelected.size) {
+        this.extraSelected.clear();
+        this.canvasController.requestUpdate();
+        this.updateLayersPanel();
+        this.updateTransformPanel();
+        this.updatePathfinderPanel();
       }
       return;
     }
@@ -617,6 +651,7 @@ class EditorShell {
       o: "shape-tool-ellipse",
       t: "text-tool",
       h: "hand-tool",
+      a: "artboard-tool",
     };
     if (!event[commandKeyProperty] && !event.altKey && toolKeys[event.key.toLowerCase()]) {
       this.setSelectedTool(toolKeys[event.key.toLowerCase()]);
@@ -625,6 +660,78 @@ class EditorShell {
     if (this.selectedTool.handleKeyDown) {
       this.selectedTool.handleKeyDown(event);
     }
+  }
+
+  updateTransformPanel() {
+    const shapes = selectedShapes(this);
+    const show = shapes.length > 0 && !this.sceneSettings.selectedGlyph?.isEditing;
+    document.getElementById("transform-panel").style.display = show ? "block" : "none";
+  }
+
+  updatePathfinderPanel() {
+    const shapes = selectedShapes(this).filter(
+      (s) => !s.locked && s.path.numPoints > 0
+    );
+    document.getElementById("pathfinder-panel").style.display =
+      shapes.length >= 2 ? "block" : "none";
+  }
+
+  updateArtboardsPanel() {
+    const list = document.getElementById("artboards-list");
+    list.innerHTML = "";
+    for (const artboard of this.artboards) {
+      const item = document.createElement("div");
+      item.className = "artboard-item" + (artboard === this.activeArtboard ? " active" : "");
+      const name = document.createElement("span");
+      name.className = "artboard-name";
+      name.textContent = artboard.name;
+      name.title = "Double-click to rename";
+      const del = document.createElement("button");
+      del.className = "artboard-delete";
+      del.textContent = "✕";
+      del.title = "Delete artboard";
+      item.appendChild(name);
+      item.appendChild(del);
+      item.addEventListener("click", () => {
+        this.activeArtboard = artboard;
+        this.canvasController.requestUpdate();
+        // Toggle the class in place — a full re-render here would detach the
+        // element between the two clicks of a double-click, killing dblclick.
+        list.querySelectorAll(".artboard-item").forEach((el) => el.classList.remove("active"));
+        item.classList.add("active");
+      });
+      name.addEventListener("dblclick", () => {
+        const input = document.createElement("input");
+        input.className = "artboard-rename";
+        input.value = artboard.name;
+        name.replaceWith(input);
+        input.focus();
+        input.select();
+        const commit = () => {
+          artboard.name = input.value.trim() || artboard.name;
+          this.canvasController.requestUpdate();
+          this.updateArtboardsPanel();
+        };
+        input.addEventListener("blur", commit);
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            input.blur();
+          } else if (e.key === "Escape") {
+            input.value = artboard.name;
+            input.blur();
+          }
+          e.stopPropagation();
+        });
+      });
+      del.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeArtboard(this, artboard);
+      });
+      list.appendChild(item);
+    }
+    document.getElementById("artboards-empty").style.display = this.artboards.length
+      ? "none"
+      : "block";
   }
 
   updateLayersPanel() {
@@ -637,6 +744,9 @@ class EditorShell {
       if (index === selectedIndex) {
         item.classList.add("selected");
       }
+      if (this.extraSelected.has(shape)) {
+        item.classList.add("multi");
+      }
       const swatch = document.createElement("span");
       swatch.className = "layer-swatch";
       swatch.style.background = fillToCSS(shape.fill);
@@ -645,16 +755,28 @@ class EditorShell {
       name.textContent = shape.name;
       item.appendChild(swatch);
       item.appendChild(name);
-      item.addEventListener("click", () => {
-        this.sceneSettings.selectedGlyph = {
-          lineIndex: 0,
-          glyphIndex: index,
-          isEditing: false,
-        };
+      item.addEventListener("click", (event) => {
+        if (event.shiftKey) {
+          // Toggle this shape in the multi-selection; primary stays put.
+          if (this.extraSelected.has(shape)) {
+            this.extraSelected.delete(shape);
+          } else if (index !== selectedIndex) {
+            this.extraSelected.add(shape);
+          }
+        } else {
+          this.extraSelected.clear();
+          this.sceneSettings.selectedGlyph = {
+            lineIndex: 0,
+            glyphIndex: index,
+            isEditing: false,
+          };
+        }
         this.sceneSettings.selection = new Set();
         this.canvasController.requestUpdate();
         this.updateLayersPanel();
         this.updateStylePanel();
+        this.updateTransformPanel();
+        this.updatePathfinderPanel();
       });
       item.addEventListener("dblclick", () => {
         this.sceneSettings.selectedGlyph = {
@@ -939,7 +1061,7 @@ function normalizeColor(color) {
 const canvas = document.getElementById("canvas");
 const editor = new EditorShell(canvas);
 window._editor = editor; // for tests
-window._exportSVG = () => exportSVG(editor.document); // for tests
+window._exportSVG = () => exportSVG(editor.document, editor.activeArtboard); // for tests
 
 document.querySelectorAll("#toolbar button[data-tool]").forEach((button) => {
   button.addEventListener("click", () => editor.setSelectedTool(button.dataset.tool));
@@ -960,12 +1082,14 @@ document.getElementById("redo-button").addEventListener("click", () => {
 document.getElementById("zoom-fit").addEventListener("click", () => editor.zoomToFit());
 
 document.getElementById("export-svg").addEventListener("click", () => {
-  const svg = exportSVG(editor.document);
+  const svg = exportSVG(editor.document, editor.activeArtboard);
   const blob = new Blob([svg], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "vector-studio.svg";
+  a.download = editor.activeArtboard
+    ? `${editor.activeArtboard.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.svg`
+    : "vector-studio.svg";
   a.click();
   URL.revokeObjectURL(url);
 });
@@ -1091,16 +1215,41 @@ for (const id of ["threed-azimuth", "threed-elevation"]) {
 }
 
 // Watch selection changes to update panels: poll cheaply on mouseup/keyup
-canvas.addEventListener("mouseup", () => {
+const refreshPanels = () => {
+  if (!editor.sceneSettings.selectedGlyph) {
+    editor.extraSelected.clear();
+  }
   editor.updateLayersPanel();
   editor.updateStylePanel();
   editor.updateTextPanel();
+  editor.updateTransformPanel();
+  editor.updatePathfinderPanel();
+};
+canvas.addEventListener("mouseup", refreshPanels);
+window.addEventListener("keyup", refreshPanels);
+
+document.getElementById("transform-apply").addEventListener("click", () => {
+  const scaleX = (parseFloat(document.getElementById("scale-x").value) || 100) / 100;
+  const scaleY = (parseFloat(document.getElementById("scale-y").value) || 100) / 100;
+  const rotateDeg = parseFloat(document.getElementById("rotate-deg").value) || 0;
+  if (applyTransform(editor, { scaleX, scaleY, rotateDeg })) {
+    document.getElementById("scale-x").value = 100;
+    document.getElementById("scale-y").value = 100;
+    document.getElementById("rotate-deg").value = 0;
+  }
 });
-window.addEventListener("keyup", () => {
-  editor.updateLayersPanel();
-  editor.updateStylePanel();
-  editor.updateTextPanel();
+document.getElementById("flip-h").addEventListener("click", () => {
+  applyTransform(editor, { scaleX: -1 });
+});
+document.getElementById("flip-v").addEventListener("click", () => {
+  applyTransform(editor, { scaleY: -1 });
+});
+document.querySelectorAll("[data-pathfinder]").forEach((button) => {
+  button.addEventListener("click", () => {
+    applyPathfinder(editor, button.dataset.pathfinder);
+  });
 });
 
 editor.updateLayersPanel();
+editor.updateArtboardsPanel();
 editor.canvasController.requestUpdate();

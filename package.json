@@ -16,6 +16,7 @@
     "bezier-js": "^6.1.4",
     "fflate": "^0.8.3",
     "fontkit": "^2.0.4",
+    "polygon-clipping": "^0.15.7",
     "three": "^0.186.1"
   }
 }

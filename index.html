@@ -74,6 +74,35 @@
     cursor: pointer; font-size: 12px; margin-bottom: 6px;
   }
   #text-panel button:hover { background: #d8d8e2; }
+  #transform-panel, #pathfinder-panel { font-size: 13px; display: none; }
+  #transform-panel label { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  #transform-panel input[type="number"] { width: 64px; }
+  #transform-panel .btn-row, #pathfinder-panel .btn-row {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;
+  }
+  #transform-panel button, #pathfinder-panel button {
+    background: #e4e4ea; border: none; border-radius: 4px; padding: 4px 8px;
+    cursor: pointer; font-size: 12px;
+  }
+  #transform-panel button:hover, #pathfinder-panel button:hover { background: #d8d8e2; }
+  .layer-item.multi { background: #ffe9c9; }
+  #artboards-list { display: flex; flex-direction: column; gap: 2px; }
+  .artboard-item {
+    display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .artboard-item:hover { background: #e4e4ea; }
+  .artboard-item.active { background: #d3e0ff; }
+  .artboard-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .artboard-rename {
+    flex: 1; min-width: 0; font-size: 13px; padding: 1px 4px;
+    border: 1px solid #2f6bff; border-radius: 3px;
+  }
+  .artboard-delete {
+    background: none; border: none; color: #999; cursor: pointer;
+    font-size: 11px; padding: 2px 4px; border-radius: 3px;
+  }
+  .artboard-delete:hover { background: #e4e4ea; color: #c00; }
   .axis-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
   .axis-row .axis-tag { width: 40px; font-size: 11px; color: #666; flex: none; }
   .axis-row input[type="range"] { flex: 1; min-width: 0; }
@@ -108,6 +137,7 @@
     <button data-tool="knife-tool" title="Knife (K)">✂ Knife</button>
     <button data-tool="text-tool" title="Text (T)">T Text</button>
     <button data-tool="hand-tool" title="Hand (H, or hold Space)">✋ Hand</button>
+    <button data-tool="artboard-tool" title="Artboard (A) — drag to create">▦ Board</button>
     <span class="spacer"></span>
     <button id="undo-button" title="Undo (Cmd/Ctrl+Z)">↩ Undo</button>
     <button id="redo-button" title="Redo (Cmd/Ctrl+Shift+Z)">↪ Redo</button>
@@ -165,12 +195,40 @@
         <div id="axes-container"></div>
         <button id="convert-outlines" type="button">Convert to outlines</button>
       </div>
+      <div id="artboards-panel">
+        <h2>Artboards</h2>
+        <div id="artboards-list"></div>
+        <div id="artboards-empty" class="hint">None yet — press A and drag on the canvas.</div>
+      </div>
+      <div id="transform-panel">
+        <h2>Transform</h2>
+        <label>Scale X % <input type="number" id="scale-x" value="100" step="1"></label>
+        <label>Scale Y % <input type="number" id="scale-y" value="100" step="1"></label>
+        <label>Rotate ° <input type="number" id="rotate-deg" value="0" step="1"></label>
+        <div class="btn-row">
+          <button id="transform-apply" type="button">Apply</button>
+          <button id="flip-h" type="button" title="Flip horizontally">⇋ Flip H</button>
+          <button id="flip-v" type="button" title="Flip vertically">⇅ Flip V</button>
+        </div>
+        <div class="hint">Scale/rotate around the selection's center. Text stays upright.</div>
+      </div>
+      <div id="pathfinder-panel">
+        <h2>Pathfinder</h2>
+        <div class="btn-row">
+          <button data-pathfinder="unite" type="button" title="Merge shapes">Unite</button>
+          <button data-pathfinder="subtract" type="button" title="Top shape cuts the rest">Subtract</button>
+          <button data-pathfinder="intersect" type="button" title="Keep only overlap">Intersect</button>
+          <button data-pathfinder="exclude" type="button" title="Keep only non-overlap">Exclude</button>
+        </div>
+        <div class="hint">Combines selected shapes (2+). Top shape donates its style. Curves flatten to fine polylines.</div>
+      </div>
       <div class="hint">
-        V select · P pen · C curvature · R rect · O ellipse · K knife · T text · H hand<br>
+        V select · P pen · C curvature · R rect · O ellipse · K knife · T text · H hand · A artboard<br>
         Curvature pen: click to add points, the curve auto-fits. Click the first
         point to close, double-click a point for a corner, Delete removes the last point.<br>
         Double-click a shape to edit its nodes. Esc exits node editing.<br>
         Delete removes selected points or shape. Space+drag pans.<br>
+        Shift-click layers to multi-select; unlocks Pathfinder.<br>
         Outlined letters: double-click, Cmd/Ctrl+A, drag the transform handles.
       </div>
     </div>

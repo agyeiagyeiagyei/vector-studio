@@ -89,9 +89,17 @@ function docBounds(doc) {
   return bounds;
 }
 
-export function exportSVG(doc) {
-  const margin = 20;
-  const bounds = docBounds(doc) || { xMin: 0, yMin: 0, xMax: 800, yMax: 600 };
+export function exportSVG(doc, artboard = undefined) {
+  // With an active artboard the export crops to it; otherwise all shapes + margin.
+  const margin = artboard ? 0 : 20;
+  const bounds = artboard
+    ? {
+        xMin: artboard.x,
+        yMin: artboard.y,
+        xMax: artboard.x + artboard.width,
+        yMax: artboard.y + artboard.height,
+      }
+    : docBounds(doc) || { xMin: 0, yMin: 0, xMax: 800, yMax: 600 };
   const x0 = bounds.xMin - margin;
   const y0 = bounds.yMin - margin;
   const w = bounds.xMax - bounds.xMin + 2 * margin;
